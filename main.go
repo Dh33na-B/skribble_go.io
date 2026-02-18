@@ -2,7 +2,10 @@ package main
 
 import (
 	"log"
+	"math/rand"
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/gorilla/websocket"
 )
@@ -11,7 +14,9 @@ import (
 type Client struct{
 	conn *websocket.Conn 
 	hub *Hub 
-	send chan []byte 
+	send chan []byte
+	username string 
+	points int  
 }
 
 type Hub struct{
@@ -19,6 +24,7 @@ type Hub struct{
 	register chan *Client 
 	unregister chan *Client 
 	broadcast chan []byte  
+	targetWord string 
 }
 
 // converts http to websocket connection by keeyping raw TCP open 
@@ -36,7 +42,14 @@ func newHub() *Hub{
 		register: make(chan *Client),
 		unregister: make(chan *Client),
 		broadcast: make(chan []byte),
+		targetWord: generateWord(),
 	}
+}
+
+func generateWord() string {
+	words := []string{"apple","banana","cat","dog","gopher"}
+
+	return words[rand.Intn(len(words))]
 }
 
 func (h* Hub) run(){
@@ -44,6 +57,7 @@ func (h* Hub) run(){
 		select{
 		case client := <-h.register:
 			h.clients[client] = true
+			client.send <- []byte("welcome! current word length: "+strconv.Itoa(len(h.targetWord)))
 			log.Println("client registered")
 		
 		case client := <-h.unregister:
@@ -78,17 +92,45 @@ func (c *Client) readPump(){
 			log.Println("error in reading from socket",err)
 			break
 		}
-		log.Println("Received: ",string(message))
-		c.hub.broadcast <- message
+
+		msgstr := string(message)
+
+		// First message is username 
+		if c.username == ""{
+			c.username = msgstr 
+			c.send <- []byte("username set to: "+c.username)
+			continue
+		}
+
+		log.Println(c.username,"guessed:",msgstr) 
+
+		// check correct word 
+		if strings.ToLower(msgstr) == c.hub.targetWord{
+			c.points++ 
+
+			winmsg := c.username + " guessed the word! Points: "+ strconv.Itoa(c.points)
+
+			c.hub.broadcast <- []byte(winmsg)
+
+			// Generate new word 
+
+			c.hub.targetWord = generateWord() 
+
+			c.hub.broadcast <- []byte("new word length: " + strconv.Itoa(len(c.hub.targetWord)))
+			continue
+		}
+		c.hub.broadcast <- []byte(c.username + ":"+msgstr)
 	}
 }
 
 func (c *Client) writePump(){
+	defer c.conn.Close()
+
 	for message := range c.send{
 		err := c.conn.WriteMessage(websocket.TextMessage,message)
 		if err != nil{
 			log.Println("error in writing from socket",err)	
-			break
+			return 	
 		}
 	}
 }
@@ -123,7 +165,7 @@ func main(){
 	})
 
 
-	log.Println("server started on :42069")
+	log.Println("skribbl-style server started on :42069")
 
-	http.ListenAndServe(":42069",nil)
+	log.Fatal(http.ListenAndServe(":42069",nil))
 }

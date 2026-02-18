@@ -1,11 +1,11 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Go WebSocket Chat</title>
+    <title>Skribbl Mini - Go</title>
     <style>
         body {
             font-family: Arial;
-            background: #111;
+            background: #121212;
             color: white;
             text-align: center;
         }
@@ -23,12 +23,13 @@
 
         input {
             padding: 8px;
-            width: 350px;
+            width: 250px;
         }
 
         button {
             padding: 8px;
             cursor: pointer;
+            margin-left: 5px;
         }
 
         #status {
@@ -40,11 +41,12 @@
 </head>
 <body>
 
-<h2>Go WebSocket Chat</h2>
+<h2>Skribbl Mini (Go Backend)</h2>
 
 <div>
     <input type="text" id="username" placeholder="Enter username">
-    <button onclick="connect()">Join Chat</button>
+    <button onclick="join()">Join Game</button>
+    <button onclick="quit()">Quit</button>
 </div>
 
 <div id="status"></div>
@@ -52,51 +54,76 @@
 <div id="chat"></div>
 
 <div>
-    <input type="text" id="message" placeholder="Type message..." disabled>
-    <button onclick="sendMessage()" disabled id="sendBtn">Send</button>
+    <input type="text" id="message" placeholder="Type guess..." disabled>
+    <button onclick="sendMessage()" id="sendBtn" disabled>Send</button>
 </div>
 
 <script>
 let ws;
-let username;
+let joined = false;
+let currentUser = null;
 
-function connect() {
-    username = document.getElementById("username").value.trim();
+// Auto reconnect if username exists
+window.onload = function () {
+    const savedUser = localStorage.getItem("username");
+    if (savedUser) {
+        document.getElementById("username").value = savedUser;
+        join();
+    }
+};
+
+function join() {
+    const username = document.getElementById("username").value.trim();
     if (!username) {
         alert("Enter username first");
         return;
     }
 
-    ws = new WebSocket("ws://10.57.37.89:42069/ws");
+    currentUser = username;
+    localStorage.setItem("username", username);
 
-    ws.onopen = function() {
+    ws = new WebSocket("ws://" + window.location.hostname + ":42069/ws");
+
+    ws.onopen = function () {
         document.getElementById("status").innerText = "Connected as " + username;
+        ws.send(username);
+        joined = true;
         document.getElementById("message").disabled = false;
         document.getElementById("sendBtn").disabled = false;
     };
 
-    ws.onmessage = function(event) {
+    ws.onmessage = function (event) {
         addMessage(event.data);
     };
 
-    ws.onclose = function() {
+    ws.onclose = function () {
         document.getElementById("status").innerText = "Disconnected";
-    };
-
-    ws.onerror = function(err) {
-        console.log("WebSocket error:", err);
+        joined = false;
+        document.getElementById("message").disabled = true;
+        document.getElementById("sendBtn").disabled = true;
     };
 }
 
 function sendMessage() {
+    if (!joined) return;
+
     const input = document.getElementById("message");
     const msg = input.value.trim();
     if (!msg) return;
 
-    const finalMsg = username + ": " + msg;
-    ws.send(finalMsg);
-
+    ws.send(msg);
     input.value = "";
+}
+
+function quit() {
+    if (ws) {
+        ws.close();
+    }
+    localStorage.removeItem("username");
+    document.getElementById("status").innerText = "You quit the game";
+    document.getElementById("message").disabled = true;
+    document.getElementById("sendBtn").disabled = true;
+    joined = false;
 }
 
 function addMessage(msg) {
