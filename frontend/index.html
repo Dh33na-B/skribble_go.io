@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Go WebSocket Chat</title>
+    <style>
+        body {
+            font-family: Arial;
+            background: #111;
+            color: white;
+            text-align: center;
+        }
+
+        #chat {
+            width: 500px;
+            height: 300px;
+            margin: 20px auto;
+            overflow-y: scroll;
+            border: 1px solid #444;
+            padding: 10px;
+            background: #1e1e1e;
+            text-align: left;
+        }
+
+        input {
+            padding: 8px;
+            width: 350px;
+        }
+
+        button {
+            padding: 8px;
+            cursor: pointer;
+        }
+
+        #status {
+            margin-top: 10px;
+            font-size: 14px;
+            color: lightgreen;
+        }
+    </style>
+</head>
+<body>
+
+<h2>Go WebSocket Chat</h2>
+
+<div>
+    <input type="text" id="username" placeholder="Enter username">
+    <button onclick="connect()">Join Chat</button>
+</div>
+
+<div id="status"></div>
+
+<div id="chat"></div>
+
+<div>
+    <input type="text" id="message" placeholder="Type message..." disabled>
+    <button onclick="sendMessage()" disabled id="sendBtn">Send</button>
+</div>
+
+<script>
+let ws;
+let username;
+
+function connect() {
+    username = document.getElementById("username").value.trim();
+    if (!username) {
+        alert("Enter username first");
+        return;
+    }
+
+    ws = new WebSocket("ws://10.57.37.89:42069/ws");
+
+    ws.onopen = function() {
+        document.getElementById("status").innerText = "Connected as " + username;
+        document.getElementById("message").disabled = false;
+        document.getElementById("sendBtn").disabled = false;
+    };
+
+    ws.onmessage = function(event) {
+        addMessage(event.data);
+    };
+
+    ws.onclose = function() {
+        document.getElementById("status").innerText = "Disconnected";
+    };
+
+    ws.onerror = function(err) {
+        console.log("WebSocket error:", err);
+    };
+}
+
+function sendMessage() {
+    const input = document.getElementById("message");
+    const msg = input.value.trim();
+    if (!msg) return;
+
+    const finalMsg = username + ": " + msg;
+    ws.send(finalMsg);
+
+    input.value = "";
+}
+
+function addMessage(msg) {
+    const chat = document.getElementById("chat");
+    const div = document.createElement("div");
+    div.innerText = msg;
+    chat.appendChild(div);
+    chat.scrollTop = chat.scrollHeight;
+}
+</script>
+
+</body>
+</html>
