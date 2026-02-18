@@ -1,171 +1,208 @@
 package main
 
 import (
+	"encoding/json"
 	"log"
 	"math/rand"
 	"net/http"
-	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
 
-
-type Client struct{
-	conn *websocket.Conn 
-	hub *Hub 
-	send chan []byte
-	username string 
-	points int  
+type Client struct {
+	conn     *websocket.Conn
+	hub      *Hub
+	send     chan []byte
+	username string
 }
 
-type Hub struct{
-	clients map[*Client]bool
-	register chan *Client 
-	unregister chan *Client 
-	broadcast chan []byte  
-	targetWord string 
+type GameState struct {
+	WordLength int            `json:"word_length"`
+	Scores     map[string]int `json:"scores"`
+	History    []string       `json:"history"`
+	TimeLeft   int            `json:"time_left"`
 }
 
-// converts http to websocket connection by keeyping raw TCP open 
+type Hub struct {
+	clients    map[*Client]bool
+	register   chan *Client
+	unregister chan *Client
+	broadcast  chan string
+	tick       chan bool
+
+	targetWord string
+	scores     map[string]int
+	history    []string
+
+	roundTime int
+	timeLeft  int
+}
+
 var upgrader = websocket.Upgrader{
-
-	// allows all origin 
-	CheckOrigin: func (r* http.Request) bool{
+	CheckOrigin: func(r *http.Request) bool {
 		return true
 	},
 }
 
-func newHub() *Hub{
-	return &Hub{
-		clients: make(map[*Client]bool),
-		register: make(chan *Client),
-		unregister: make(chan *Client),
-		broadcast: make(chan []byte),
-		targetWord: generateWord(),
-	}
-}
-
 func generateWord() string {
-	words := []string{"apple","banana","cat","dog","gopher"}
-
+	words := []string{"apple", "banana", "gopher", "dog", "cat"}
 	return words[rand.Intn(len(words))]
 }
 
-func (h* Hub) run(){
-	for{
-		select{
+func newHub() *Hub {
+	return &Hub{
+		clients:    make(map[*Client]bool),
+		register:   make(chan *Client),
+		unregister: make(chan *Client),
+		broadcast:  make(chan string),
+		tick:       make(chan bool),
+		targetWord: generateWord(),
+		scores:     make(map[string]int),
+		history:    []string{},
+		roundTime:  30,
+		timeLeft:   30,
+	}
+}
+
+func (h *Hub) run() {
+	for {
+		select {
+
 		case client := <-h.register:
 			h.clients[client] = true
-			client.send <- []byte("welcome! current word length: "+strconv.Itoa(len(h.targetWord)))
-			log.Println("client registered")
-		
+
 		case client := <-h.unregister:
-			if _,ok := h.clients[client];ok{
-				delete(h.clients,client)
-				close(client.send)
-				log.Println("client removed")
+			delete(h.clients, client)
+			close(client.send)
+
+		case msg := <-h.broadcast:
+			h.history = append(h.history, msg)
+			if len(h.history) > 100 {
+				h.history = h.history[1:]
 			}
-		case message := <-h.broadcast:
-			for client := range h.clients{
-				select{
-				case client.send <- message:
+			for client := range h.clients {
+				select {
+				case client.send <- []byte(msg):
 				default:
-					// slow client -> removal
 					close(client.send)
-					delete(h.clients,client)
+					delete(h.clients, client)
 				}
+			}
+
+		case <-h.tick:
+			h.timeLeft--
+
+			if h.timeLeft <= 0 {
+				h.history = append(h.history, " Time's up! New word generated.")
+				h.targetWord = generateWord()
+				h.timeLeft = h.roundTime
+			}
+
+			// Broadcast updated state every second
+			for client := range h.clients {
+				h.sendFullState(client)
 			}
 		}
 	}
 }
 
-func (c *Client) readPump(){
-	defer func(){
-		c.hub.unregister <- c 
+func (h *Hub) sendFullState(c *Client) {
+	state := GameState{
+		WordLength: len(h.targetWord),
+		Scores:     h.scores,
+		History:    h.history,
+		TimeLeft:   h.timeLeft,
+	}
+	data, _ := json.Marshal(state)
+	c.send <- data
+}
+
+func (h *Hub) startTimer() {
+	ticker := time.NewTicker(1 * time.Second)
+	go func() {
+		for range ticker.C {
+			h.tick <- true
+		}
+	}()
+}
+
+func (c *Client) readPump() {
+	defer func() {
+		c.hub.unregister <- c
 		c.conn.Close()
 	}()
 
-	for{
-		_,message,err := c.conn.ReadMessage()
-		if err != nil{
-			log.Println("error in reading from socket",err)
+	for {
+		_, message, err := c.conn.ReadMessage()
+		if err != nil {
 			break
 		}
 
-		msgstr := string(message)
+		msgStr := string(message)
 
-		// First message is username 
-		if c.username == ""{
-			c.username = msgstr 
-			c.send <- []byte("username set to: "+c.username)
+		if c.username == "" {
+			c.username = msgStr
+			if _, exists := c.hub.scores[c.username]; !exists {
+				c.hub.scores[c.username] = 0
+			}
+			c.hub.sendFullState(c)
 			continue
 		}
 
-		log.Println(c.username,"guessed:",msgstr) 
+		if strings.ToLower(msgStr) == c.hub.targetWord {
+			c.hub.scores[c.username]++
+			c.hub.history = append(c.hub.history,
+				" "+c.username+" guessed the word!")
 
-		// check correct word 
-		if strings.ToLower(msgstr) == c.hub.targetWord{
-			c.points++ 
-
-			winmsg := c.username + " guessed the word! Points: "+ strconv.Itoa(c.points)
-
-			c.hub.broadcast <- []byte(winmsg)
-
-			// Generate new word 
-
-			c.hub.targetWord = generateWord() 
-
-			c.hub.broadcast <- []byte("new word length: " + strconv.Itoa(len(c.hub.targetWord)))
-			continue
+			c.hub.targetWord = generateWord()
+			c.hub.timeLeft = c.hub.roundTime
+		} else {
+			c.hub.broadcast <- c.username + ": " + msgStr
 		}
-		c.hub.broadcast <- []byte(c.username + ":"+msgstr)
 	}
 }
 
-func (c *Client) writePump(){
+func (c *Client) writePump() {
 	defer c.conn.Close()
-
-	for message := range c.send{
-		err := c.conn.WriteMessage(websocket.TextMessage,message)
-		if err != nil{
-			log.Println("error in writing from socket",err)	
-			return 	
+	for message := range c.send {
+		err := c.conn.WriteMessage(websocket.TextMessage, message)
+		if err != nil {
+			return
 		}
 	}
 }
 
-func serveWS(hub *Hub,w http.ResponseWriter,r *http.Request){
-	conn, err := upgrader.Upgrade(w,r,nil)
-	if err != nil{
-		log.Println("error in upgrading to websocket")
-		return 
+func serveWS(hub *Hub, w http.ResponseWriter, r *http.Request) {
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		return
 	}
 
 	client := &Client{
 		conn: conn,
-		hub: hub,
-		send: make(chan []byte,256),
+		hub:  hub,
+		send: make(chan []byte, 256),
 	}
 
-	client.hub.register <- client 
+	hub.register <- client
 
 	go client.writePump()
 	go client.readPump()
 }
 
-func main(){
+func main() {
+	rand.Seed(time.Now().UnixNano())
 
 	hub := newHub()
+	go hub.run()
+	hub.startTimer()
 
-	go hub.run() 
-
-	http.HandleFunc("/ws",func(w http.ResponseWriter, r* http.Request){
-		serveWS(hub,w,r)
+	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+		serveWS(hub, w, r)
 	})
 
-
-	log.Println("skribbl-style server started on :42069")
-
-	log.Fatal(http.ListenAndServe(":42069",nil))
+	log.Println("Game server running on :42069")
+	log.Fatal(http.ListenAndServe(":42069", nil))
 }
