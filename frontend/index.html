@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Scribble</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <div class="app">
+    <section class="panel header">
+      <div class="header-top">
+        <h1>Scribble</h1>
+        <span id="backendPill" class="pill">ready</span>
+      </div>
+      <div class="muted">Single-user client flow: register/login, join a room, connect websocket, then chat/guess/draw.</div>
+      <div class="row2">
+        <input id="apiBase" value="http://localhost:8080" placeholder="API base URL">
+        <button id="applyBase" class="ghost">Apply Base URL</button>
+      </div>
+    </section>
+
+    <section class="grid">
+      <div class="col">
+        <section class="panel">
+          <h2>Account</h2>
+          <article class="card">
+            <div class="row2">
+              <input id="userName" placeholder="username">
+              <input id="userEmail" placeholder="email">
+            </div>
+            <input id="userPass" type="password" placeholder="password">
+            <div class="row2">
+              <button id="registerUser">Register</button>
+              <button id="loginUser" class="alt">Login</button>
+            </div>
+            <textarea id="userToken" readonly placeholder="auth token"></textarea>
+            <div class="row2">
+              <button id="connectWs" class="ghost">Connect WS</button>
+              <button id="disconnectWs" class="ghost">Disconnect WS</button>
+            </div>
+          </article>
+        </section>
+      </div>
+
+      <div class="col">
+        <section class="panel row">
+          <h2>Room</h2>
+          <input id="roomCode" placeholder="ROOM CODE">
+          <div class="row2">
+            <button id="createRoom">Create Room</button>
+            <button id="joinRoom" class="alt">Join Room</button>
+          </div>
+          <button id="startGame">Start Game</button>
+          <div id="snapshot" class="muted">No snapshot yet</div>
+        </section>
+
+        <section class="panel">
+          <h2>Scoreboard</h2>
+          <div id="scores"></div>
+        </section>
+
+        <section class="panel row">
+          <h2>Send Events</h2>
+          <input id="brushSize" type="range" min="1" max="20" value="4">
+          <div class="row2">
+            <input id="chatInput" placeholder="chat message">
+            <button id="sendChat">Send Chat</button>
+          </div>
+          <div class="row2">
+            <input id="guessInput" placeholder="word guess">
+            <button id="sendGuess" class="alt">Send Guess</button>
+          </div>
+          <input id="brushColor" type="color" value="#0c9c8c">
+        </section>
+      </div>
+
+      <div class="col">
+        <section class="panel row">
+          <h2>Drawing Board</h2>
+          <div id="canvasWrap"><canvas id="board"></canvas></div>
+          <button id="clearCanvas" class="ghost">Clear Canvas (Local)</button>
+        </section>
+
+        <section class="panel row">
+          <h2>Events</h2>
+          <div class="row2">
+            <button id="clearLog" class="ghost">Clear Log</button>
+          </div>
+          <div id="log"></div>
+        </section>
+      </div>
+    </section>
+  </div>
+
+  <script src="./script.js"></script>
+</body>
+</html>
